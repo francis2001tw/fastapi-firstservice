@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FastAPI + Supabase 认证演示</title>
+<style>
+/* ── 全局 ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --primary: #3b82f6; --primary-dark: #2563eb; --success: #10b981;
+  --danger: #ef4444;  --gray-50: #f9fafb;     --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb; --gray-500: #6b7280;    --gray-700: #374151;
+  --gray-900: #111827; --radius: 10px;          --shadow: 0 4px 24px rgba(0,0,0,.08);
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: linear-gradient(135deg, #e0e7ff 0%, #f0fdfa 100%);
+  min-height: 100vh; display: flex; justify-content: center; align-items: flex-start;
+  padding: 40px 16px; color: var(--gray-900);
+}
+.container { width: 100%; max-width: 480px; }
+.card {
+  background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 32px; margin-bottom: 20px;
+}
+h1 { text-align: center; font-size: 1.5rem; margin-bottom: 4px; }
+.subtitle { text-align: center; color: var(--gray-500); font-size: .88rem; margin-bottom: 24px; }
+
+/* ── Tabs ── */
+.tabs { display: flex; border-bottom: 2px solid var(--gray-200); margin-bottom: 20px; }
+.tab-btn {
+  flex: 1; padding: 10px 4px; background: none; border: none; cursor: pointer;
+  font-size: .9rem; color: var(--gray-500); border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: .2s;
+}
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── 表单元素 ── */
+label { display: block; font-size: .85rem; font-weight: 500; margin-bottom: 4px; color: var(--gray-700); }
+input[type="text"], input[type="email"], input[type="password"], input[type="tel"] {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--gray-200); border-radius: 8px;
+  font-size: .95rem; margin-bottom: 12px; transition: border .2s;
+}
+input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+.btn {
+  width: 100%; padding: 11px; border: none; border-radius: 8px; font-size: .95rem;
+  font-weight: 600; cursor: pointer; transition: .2s; margin-bottom: 8px;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-google { background: #fff; color: var(--gray-700); border: 1px solid var(--gray-200); }
+.btn-google:hover { background: var(--gray-50); }
+.btn-wechat { background: #07c160; color: #fff; }
+.btn-wechat:hover { background: #06ae56; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { background: #dc2626; }
+.btn-sm { width: auto; padding: 8px 18px; font-size: .85rem; }
+.inline-row { display: flex; gap: 8px; align-items: flex-end; }
+.inline-row input { flex: 1; margin-bottom: 0; }
+.inline-row .btn { width: auto; flex-shrink: 0; margin-bottom: 0; }
+
+.note {
+  background: var(--gray-50); border-radius: 8px; padding: 10px 14px;
+  font-size: .82rem; color: var(--gray-500); margin-bottom: 14px; line-height: 1.5;
+}
+.msg { padding: 10px 14px; border-radius: 8px; font-size: .85rem; margin-bottom: 12px; display: none; }
+.msg.error { display: block; background: #fef2f2; color: var(--danger); }
+.msg.success { display: block; background: #ecfdf5; color: var(--success); }
+
+/* ── 用户信息区 ── */
+#auth-section { display: none; }
+#auth-section.visible { display: block; }
+.info-grid { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; font-size: .88rem; margin-bottom: 16px; }
+.info-label { color: var(--gray-500); font-weight: 500; }
+.info-value { word-break: break-all; }
+.token-box {
+  background: var(--gray-50); border-radius: 8px; padding: 8px 12px;
+  font-size: .78rem; color: var(--gray-500); word-break: break-all; margin-bottom: 12px;
+  max-height: 80px; overflow-y: auto; font-family: monospace;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- 全局消息 (位于卡片之外, 始终可见) -->
+  <div id="msg" class="msg"></div>
+
+  <!-- ======== 登录卡片 ======== -->
+  <div class="card" id="login-card">
+    <h1>用户认证演示</h1>
+    <p class="subtitle">FastAPI + Supabase · 邮箱 / 手机 / Google / 微信</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="email">邮箱</button>
+      <button class="tab-btn" data-tab="phone">手机 OTP</button>
+      <button class="tab-btn" data-tab="google">Google</button>
+      <button class="tab-btn" data-tab="wechat">微信</button>
+    </div>
+
+    <!-- ── 邮箱 ── -->
+    <div class="tab-content active" id="tab-email">
+      <div class="note">邮箱模式区分注册与登录: 新用户请先注册, 已有账号直接登录。</div>
+      <label>邮箱</label>
+      <input type="email" id="email" placeholder="user@example.com">
+      <label>密码</label>
+      <input type="password" id="email-pw" placeholder="至少 6 位">
+      <button class="btn btn-primary" onclick="emailSignup()">注册</button>
+      <button class="btn btn-google" onclick="emailSignin()">登录</button>
+    </div>
+
+    <!-- ── 手机 OTP ── -->
+    <div class="tab-content" id="tab-phone">
+      <div class="note">
+        手机 OTP 不区分注册/登录: 如果手机号未注册, Supabase 会自动创建账号。<br>
+        需在 Supabase Dashboard 启用 Phone Provider 并配置 Twilio。
+      </div>
+      <label>手机号 (国际格式)</label>
+      <div class="inline-row">
+        <input type="tel" id="phone" placeholder="+8613800138000">
+        <button class="btn btn-primary btn-sm" onclick="phoneSendOTP()">发送验证码</button>
+      </div>
+      <div style="height:12px"></div>
+      <label>验证码</label>
+      <div class="inline-row">
+        <input type="text" id="otp-code" placeholder="6 位数字" maxlength="6">
+        <button class="btn btn-primary btn-sm" onclick="phoneVerifyOTP()">验证登录</button>
+      </div>
+    </div>
+
+    <!-- ── Google ── -->
+    <div class="tab-content" id="tab-google">
+      <div class="note">
+        Google OAuth 不区分注册/登录: 首次使用 Google 登录会自动注册。<br>
+        使用 PKCE 流程, 后端处理 callback。
+      </div>
+      <button class="btn btn-google" onclick="googleLogin()" style="display:flex;align-items:center;justify-content:center;gap:8px;">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 0 1 9.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.998 23.998 0 0 0 0 24c0 3.77.9 7.35 2.56 10.56l7.97-5.97z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.97C6.51 42.62 14.62 48 24 48z"/></svg>
+        使用 Google 账号登录
+      </button>
+    </div>
+
+    <!-- ── 微信 ── -->
+    <div class="tab-content" id="tab-wechat">
+      <div class="note">
+        微信登录由后端独立实现 (Supabase 不原生支持)。<br>
+        当前为 <strong>Mock 模式</strong>: 点击登录将使用模拟微信身份。<br>
+        真实模式需配置微信开放平台 AppID/Secret。
+      </div>
+      <button class="btn btn-wechat" onclick="wechatLogin()" style="display:flex;align-items:center;justify-content:center;gap:8px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05a6.66 6.66 0 0 1-.261-1.818c0-3.684 3.382-6.675 7.555-6.675.276 0 .543.027.811.05C16.834 4.805 13.136 2.188 8.691 2.188zm-2.6 4.17c.58 0 1.049.47 1.049 1.049 0 .58-.47 1.049-1.049 1.049-.58 0-1.049-.47-1.049-1.049 0-.58.47-1.049 1.049-1.049zm5.392 0c.58 0 1.049.47 1.049 1.049 0 .58-.47 1.049-1.049 1.049-.58 0-1.049-.47-1.049-1.049 0-.58.47-1.049 1.049-1.049zM15.796 9.74c-3.67 0-6.65 2.613-6.65 5.834 0 3.22 2.98 5.834 6.65 5.834.765 0 1.5-.12 2.19-.338a.694.694 0 0 1 .575.08l1.521.891a.263.263 0 0 0 .133.043c.13 0 .236-.105.236-.236 0-.058-.024-.114-.039-.17l-.312-1.18a.475.475 0 0 1 .171-.533C21.655 18.82 22.65 17.1 22.65 15.574c0-3.221-2.98-5.834-6.854-5.834zm-2.148 3.473c.464 0 .84.376.84.84 0 .464-.376.84-.84.84a.839.839 0 0 1-.84-.84c0-.464.376-.84.84-.84zm4.476 0c.464 0 .84.376.84.84 0 .464-.376.84-.84.84a.839.839 0 0 1-.84-.84c0-.464.376-.84.84-.84z"/></svg>
+        微信登录
+      </button>
+    </div>
+  </div>
+
+  <!-- ======== 已登录信息卡片 ======== -->
+  <div class="card" id="auth-section">
+    <h1 style="color:var(--success);font-size:1.2rem;margin-bottom:16px;">&#10003; 已登录</h1>
+
+    <div class="info-grid" id="user-info"></div>
+
+    <label style="margin-top:8px;">Access Token</label>
+    <div class="token-box" id="at-display"></div>
+
+    <label>Refresh Token</label>
+    <div class="token-box" id="rt-display"></div>
+
+    <button class="btn btn-primary" onclick="callMe()" style="margin-top:8px;">刷新 /me 信息</button>
+    <button class="btn btn-google" onclick="doRefreshToken()">刷新 Token</button>
+    <button class="btn btn-danger" onclick="logout()">登出</button>
+  </div>
+
+</div>
+
+<script>
+/* ================================================================
+   全局状态
+   ================================================================ */
+const API = '';  // 同源部署, 无需前缀
+let accessToken  = localStorage.getItem('access_token') || '';
+let refreshToken = localStorage.getItem('refresh_token') || '';
+
+/* ================================================================
+   页面加载: 检查 URL fragment 或 localStorage 中的 token
+   ================================================================ */
+(function init() {
+  // OAuth 回调会在 URL fragment 中带回 token
+  if (window.location.hash) {
+    const params = new URLSearchParams(window.location.hash.substring(1));
+    const at = params.get('access_token');
+    const rt = params.get('refresh_token');
+    if (at) {
+      accessToken = at;
+      refreshToken = rt || '';
+      saveTokens();
+      // 清除 hash, 避免 token 留在地址栏
+      history.replaceState(null, '', window.location.pathname);
+    }
+  }
+  if (accessToken) {
+    callMe();
+  }
+})();
+
+/* ================================================================
+   Token 管理
+   ================================================================ */
+function saveTokens() {
+  localStorage.setItem('access_token', accessToken);
+  localStorage.setItem('refresh_token', refreshToken);
+}
+
+function clearTokens() {
+  accessToken = '';
+  refreshToken = '';
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+}
+
+function maskToken(t) {
+  if (!t || t.length < 20) return t || '(无)';
+  return t.substring(0, 20) + '****' + t.substring(t.length - 10);
+}
+
+/* ================================================================
+   UI 辅助
+   ================================================================ */
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + type;
+}
+
+function hideMsg() {
+  document.getElementById('msg').className = 'msg';
+}
+
+function showAuth(data) {
+  document.getElementById('login-card').style.display = 'none';
+  const section = document.getElementById('auth-section');
+  section.style.display = 'block';
+
+  // 填充用户信息
+  const grid = document.getElementById('user-info');
+  const fields = [
+    ['User ID',    data.user_id],
+    ['Email',      data.email],
+    ['Phone',      data.phone],
+    ['Role',       data.role],
+    ['昵称',       (data.user_metadata || {}).nickname || (data.user_metadata || {}).full_name || '-'],
+    ['Provider',   ((data.identities || [])[0] || {}).provider || (data.user_metadata || {}).provider || '-'],
+    ['创建时间',   data.created_at ? new Date(data.created_at).toLocaleString('zh-CN') : '-'],
+  ];
+  grid.innerHTML = fields.map(([k, v]) =>
+    `<span class="info-label">${k}</span><span class="info-value">${v || '-'}</span>`
+  ).join('');
+
+  document.getElementById('at-display').textContent = maskToken(accessToken);
+  document.getElementById('rt-display').textContent = maskToken(refreshToken);
+}
+
+function showLogin() {
+  document.getElementById('login-card').style.display = 'block';
+  document.getElementById('auth-section').style.display = 'none';
+}
+
+/* ================================================================
+   Tab 切换
+   ================================================================ */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    hideMsg();
+  });
+});
+
+/* ================================================================
+   通用 Fetch 封装
+   ================================================================ */
+async function apiFetch(url, options = {}) {
+  try {
+    const resp = await fetch(API + url, options);
+    const data = await resp.json();
+    if (!resp.ok) {
+      const detail = data.detail;
+      const msg = typeof detail === 'string' ? detail
+                : detail?.msg || detail?.message || JSON.stringify(detail);
+      throw new Error(msg);
+    }
+    return data;
+  } catch (e) {
+    throw e;
+  }
+}
+
+/* ================================================================
+   邮箱注册 / 登录
+   ================================================================ */
+async function emailSignup() {
+  hideMsg();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('email-pw').value;
+  if (!email || !password) return showMsg('请填写邮箱和密码', 'error');
+  try {
+    await apiFetch('/auth/signup/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    showMsg('注册成功! 请检查邮箱确认链接, 然后点击"登录"。', 'success');
+  } catch (e) { showMsg('注册失败: ' + e.message, 'error'); }
+}
+
+async function emailSignin() {
+  hideMsg();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('email-pw').value;
+  if (!email || !password) return showMsg('请填写邮箱和密码', 'error');
+  try {
+    const data = await apiFetch('/auth/signin/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    accessToken = data.access_token;
+    refreshToken = data.refresh_token;
+    saveTokens();
+    callMe();
+  } catch (e) { showMsg('登录失败: ' + e.message, 'error'); }
+}
+
+/* ================================================================
+   手机 OTP
+   ================================================================ */
+async function phoneSendOTP() {
+  hideMsg();
+  const phone = document.getElementById('phone').value.trim();
+  if (!phone) return showMsg('请输入手机号', 'error');
+  try {
+    await apiFetch('/auth/signup/phone/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    showMsg('验证码已发送, 请查看手机短信', 'success');
+  } catch (e) { showMsg('发送失败: ' + e.message, 'error'); }
+}
+
+async function phoneVerifyOTP() {
+  hideMsg();
+  const phone = document.getElementById('phone').value.trim();
+  const token = document.getElementById('otp-code').value.trim();
+  if (!phone || !token) return showMsg('请填写手机号和验证码', 'error');
+  try {
+    const data = await apiFetch('/auth/signup/phone/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, token }),
+    });
+    accessToken = data.access_token;
+    refreshToken = data.refresh_token;
+    saveTokens();
+    callMe();
+  } catch (e) { showMsg('验证失败: ' + e.message, 'error'); }
+}
+
+/* ================================================================
+   Google OAuth
+   ================================================================ */
+function googleLogin() {
+  // 直接导航到后端 /auth/google/url, 后端会 302 到 Supabase → Google
+  window.location.href = API + '/auth/google/url';
+}
+
+/* ================================================================
+   微信登录
+   ================================================================ */
+async function wechatLogin() {
+  hideMsg();
+  try {
+    const data = await apiFetch('/auth/wechat/url');
+    // 跳转到微信授权页 (mock 模式直接跳转到回调)
+    window.location.href = data.url;
+  } catch (e) { showMsg('获取微信授权链接失败: ' + e.message, 'error'); }
+}
+
+/* ================================================================
+   /me — 获取当前用户信息
+   ================================================================ */
+async function callMe() {
+  try {
+    const data = await apiFetch('/me', {
+      headers: { 'Authorization': 'Bearer ' + accessToken },
+    });
+    showAuth(data);
+  } catch (e) {
+    // Token 过期或无效, 回到登录界面
+    clearTokens();
+    showLogin();
+    showMsg('登录状态失效: ' + e.message, 'error');
+  }
+}
+
+/* ================================================================
+   刷新 Token
+   ================================================================ */
+async function doRefreshToken() {
+  if (!refreshToken) return showMsg('无 refresh_token, 请重新登录', 'error');
+  try {
+    const data = await apiFetch('/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    accessToken = data.access_token;
+    refreshToken = data.refresh_token;
+    saveTokens();
+    showMsg('Token 已刷新', 'success');
+    callMe();
+  } catch (e) { showMsg('刷新失败: ' + e.message, 'error'); }
+}
+
+/* ================================================================
+   登出
+   ================================================================ */
+function logout() {
+  clearTokens();
+  showLogin();
+  hideMsg();
+}
+</script>
+</body>
+</html>

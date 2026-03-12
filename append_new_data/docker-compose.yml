@@ -1,0 +1,6 @@
+services:
+  api:
+    build: .
+    ports:
+      - "5000:5000"
+    command: uvicorn fastapi_in_poman:fastapi_app --host 0.0.0.0 --port 5000
