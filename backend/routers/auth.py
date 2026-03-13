@@ -49,10 +49,18 @@ async def _supabase_post(path: str, body: dict, headers: dict | None = None) -> 
             json=body,
         )
     if resp.status_code >= 400:
-        detail = resp.json() if resp.text else {"msg": resp.reason_phrase}
+        try:
+            detail = resp.json() if resp.text else {}
+        except Exception:
+            detail = {"msg": resp.text or resp.reason_phrase or "Supabase 请求失败"}
+        if not detail:
+            detail = {"msg": resp.reason_phrase or "Supabase 请求失败"}
         logger.warning("Supabase %s 返回 %s: %s", path, resp.status_code, detail)
         raise HTTPException(status_code=resp.status_code, detail=detail)
-    return resp.json() if resp.text else {}
+    try:
+        return resp.json() if resp.text else {}
+    except Exception:
+        return {}
 
 
 # ────────────────── 邮箱注册 / 登录 ──────────────────

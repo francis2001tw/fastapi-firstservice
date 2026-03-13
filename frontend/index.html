@@ -287,7 +287,14 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 async function apiFetch(url, options = {}) {
   try {
     const resp = await fetch(API + url, options);
-    const data = await resp.json();
+    const text = await resp.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch (_) {
+      if (!resp.ok) throw new Error(text || resp.statusText || 'Request failed');
+      throw new Error('服务器返回了非 JSON 响应');
+    }
     if (!resp.ok) {
       const detail = data.detail;
       const msg = typeof detail === 'string' ? detail

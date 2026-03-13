@@ -3,20 +3,30 @@ FastAPI + Supabase 用户认证演示 — 应用入口
 
 启动方式:
   uvicorn backend.main:app --reload --port 8000
+  或在 backend 目录下: python main.py
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# 支持直接运行 python main.py（无父包时用绝对导入）
+if __name__ == "__main__" or not __package__:
+    _backend = Path(__file__).resolve().parent
+    if str(_backend) not in sys.path:
+        sys.path.insert(0, str(_backend.parent))
+    __package__ = "backend"
 
 import httpx
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import SUPABASE_URL, SUPABASE_AUTH_URL, SUPABASE_ANON_KEY, SUPABASE_JWT_SECRET
-from .dependencies import get_current_user
-from .routers import auth, wechat
+from backend.config import SUPABASE_URL, SUPABASE_AUTH_URL, SUPABASE_ANON_KEY, SUPABASE_JWT_SECRET
+from backend.dependencies import get_current_user
+from backend.routers import auth, wechat
 
 logging.basicConfig(
     level=logging.INFO,
@@ -137,6 +147,17 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(Exception)
+async def json_exception_handler(request, exc: Exception):
+    """确保所有未捕获异常都返回 JSON，避免前端解析到 "Internal Server Error" 文本"""
+    logger.exception("未捕获异常: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc) or "Internal server error"},
+    )
+
 
 # ────────────────── CORS (本地开发) ──────────────────
 app.add_middleware(
